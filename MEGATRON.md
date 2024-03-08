@@ -6,17 +6,21 @@ Nanotron gets the batch from the dataloader with the following statement: `batch
 Then we do `batch = iter(batch)`. Nothing happens.
 
 L#276 engine.py: `for micro_batch in batch:`
-micro_batch (micro_batch.pkl) looks like: 
+micro_batch (micro_batch.pkl) looks like:
 - type: Dict: 'input_ids', 'input_mask', 'label_ids', 'label_mask' 
-- [micro_batch_size, sequence_length]
+- shape: [micro_batch_size, sequence_length]
 - label_ids are next tokens of input_ids
 
-2. How do Megatron batches look like? (Dimensions)
-   
-2. How Megatron batches are builded? (Does it concatenates several texts? What are "documents"?)
-3. How does Megatron serve batches? (def get_batch?)
-4. Proposed solution
-5. Runs with 1 GPU (debug_llama_1GPU.yaml)
-6. Runs with 4 GPUs (Llama 7B)
-7. Other considerations
+2. What does the iterator output look like? (Dimensions)
+In get_batch the next(data_iterator) we get a dict containing a "text" field with a tensor of shape [micro_batch_size, seq_len+1]. The tokens_ is just the tensor itself without the dict. 
+
+So, the iterator gives us a tensor of [micro_batch_size, seq_len+1], we need to craft the 'input_ids', 'input_mask', 'label_ids', 'label_mask'.
+3. How does Megatron serve batches? (build masks and labels_ids?)
+ 
+4. How Megatron .bin files are builded? (Does it concatenates several texts? What are "documents"?)
+- Necessary to include vocab file and merges.txt
+5. Proposed solution
+6. Runs with 1 GPU (debug_llama_1GPU.yaml)
+7. Runs with 4 GPUs (Llama 7B)
+8. Other considerations
 Take into consideration that only the first processes of the pipeline get the data, the others get the dummy dataloader! Port also the dummy dataloader to Nanotron
