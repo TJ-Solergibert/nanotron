@@ -12,7 +12,9 @@ data:
     hf_dataset_or_datasets: /mloscratch/homes/solergib/datasets/SlimPajama-6B
     hf_dataset_splits: train
     text_column_name: text
-  num_loading_workers: 1
+    data_path: /mloscratch/homes/solergib/s-ai/nanotron/datasets/europarl-gpt_text_document
+    split: 949,50,1
+  num_loading_workers: 4
   seed: 1234
 general:
   benchmark_csv_path: null
@@ -88,5 +90,7 @@ tokens:
   limit_val_batches: 0
   micro_batch_size: 1
   sequence_length: 4096
-  train_steps: 500
-  val_check_interval: -1
+  train_steps: 500000
+  val_check_interval: 500
+  val_steps: 10
+  

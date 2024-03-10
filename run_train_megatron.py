@@ -10,29 +10,9 @@ torchrun --nproc_per_node=8 run_train.py --config-file examples/config_tiny_llam
 import argparse
 
 from nanotron import logging
-from nanotron.config import (
-    PretrainDatasetsArgs,
-)
-from nanotron.dataloader import (
-    clm_process,
-    dummy_infinite_data_generator,
-    get_datasets,
-    get_train_dataloader,
-)
 
 from nanotron.parallel.pipeline_parallel.utils import get_input_output_pp_ranks
 from nanotron.trainer import DistributedTrainer
-from nanotron.utils import (
-    main_rank_first,
-)
-
-try:
-    from huggingface_hub import __version__ as hf_hub_version
-    from transformers import AutoTokenizer
-    from transformers import __version__ as tf_version
-except ImportError:
-    hf_hub_version = None
-    tf_version = None
 
 from nanotron.data.dataloader import build_megatron_dataloader, build_megatron_datasets
 
@@ -44,7 +24,16 @@ def get_megatron_dataloaders(trainer: DistributedTrainer):
     # First, we need to know which ranks to feed the dataloader to
     input_pp_rank, output_pp_rank = get_input_output_pp_ranks(model=trainer.model)
 
-    train_dataset, valid_dataset, test_dataset = build_megatron_datasets()
+    train_dataset, valid_dataset, test_dataset = build_megatron_datasets(
+        sequence_length=trainer.sequence_length,
+        data_path= trainer.config.data.dataset.data_path,
+        split=trainer.config.data.dataset.split,
+        train_iters= trainer.config.tokens.train_steps,
+        eval_interval= trainer.config.tokens.val_check_interval,
+        eval_iters= trainer.config.tokens.val_steps,
+        global_batch_size= trainer.global_batch_size,
+        seed=trainer.config.data.seed
+    )
 
     # Prepare train, valid and test dataloaders
     train_dataloader = build_megatron_dataloader(

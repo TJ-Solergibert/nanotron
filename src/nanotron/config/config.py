@@ -81,7 +81,9 @@ class LoggingArgs:
 
 @dataclass
 class PretrainDatasetsArgs:
+    data_path: Optional[str]
     hf_dataset_or_datasets: Union[str, list, dict]
+    split: Optional[str] = None
     hf_dataset_splits: Optional[Union[str, list]] = None
     hf_dataset_config_name: Optional[str] = None
     dataset_processing_num_proc_per_process: Optional[int] = 1
@@ -93,7 +95,8 @@ class PretrainDatasetsArgs:
             self.text_column_name = "text"
         if self.hf_dataset_splits is None:
             self.hf_dataset_splits = "train"
-
+        if self.split is None:
+            self.split = "949,50,1"
 
 @dataclass
 class DataArgs:
@@ -212,6 +215,7 @@ class TokensArgs:
     batch_accumulation_per_replica: int
 
     val_check_interval: Optional[int] = -1
+    val_steps: Optional[int] = 10
     limit_val_batches: Optional[int] = 0
     limit_test_batches: Optional[int] = 0
 

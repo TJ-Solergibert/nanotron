@@ -86,7 +86,16 @@ def build_megatron_dataloader(
         # pin_memory_device="cuda",
     )
 
-def build_megatron_datasets(): # Define how many an do how introduce things here
+def build_megatron_datasets(
+        seed: int,
+        sequence_length: int,
+        data_path: str,
+        split: str,
+        train_iters: int,
+        eval_interval: int,
+        eval_iters: int,
+        global_batch_size: int
+): 
     # Install helpers. Only performed by 1 process
     if dist.get_rank() == 0:
         log_rank("Compiling dataset index builder ...", logger=logger, level=logging.INFO, rank=0)
@@ -99,7 +108,7 @@ def build_megatron_datasets(): # Define how many an do how introduce things here
     # TODO Change for config args of trainer, they will belong to the .yaml file
     gpt_config = GPTDatasetConfig(
         random_seed=seed,
-        sequence_length=trainer.sequence_length,
+        sequence_length=sequence_length,
         data_path=data_path,
         split=split,
     )
@@ -111,7 +120,10 @@ def build_megatron_datasets(): # Define how many an do how introduce things here
     # Vale a ver: Train iters es un numero, el numero de samples sera train_iter * global batch size
     # Valid es primero calcular el numero de iters (12 trainig iters y eval-interval de 5 hara eval en 5, 10 y 12)
     # que con 5 eval iters hara un total de 15 iters y un total de samples de 15 iters * global batch size
-    train_val_test_num_samples = compute_datasets_num_samples() # TODO
+    train_val_test_num_samples = compute_datasets_num_samples(train_iters=train_iters,
+                                                            eval_interval=eval_interval, 
+                                                            eval_iters=eval_iters,
+                                                            global_batch_size=global_batch_size)
     train_dataset, valid_dataset, test_dataset = BlendedMegatronDatasetBuilder(GPTDataset, train_val_test_num_samples, gpt_config).build()
 
     return train_dataset, valid_dataset, test_dataset
