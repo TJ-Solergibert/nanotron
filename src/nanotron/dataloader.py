@@ -209,6 +209,7 @@ def dummy_infinite_data_generator(
                 )
                 if dist.get_rank(parallel_context.pp_pg) == input_pp_rank
                 else TensorPointer(group_rank=input_pp_rank),
+
                 "input_mask": torch.ones(
                     micro_batch_size,
                     sequence_length,
@@ -217,6 +218,7 @@ def dummy_infinite_data_generator(
                 )
                 if dist.get_rank(parallel_context.pp_pg) == input_pp_rank
                 else TensorPointer(group_rank=input_pp_rank),
+
                 "label_ids": torch.randint(
                     0,
                     vocab_size,
@@ -227,6 +229,7 @@ def dummy_infinite_data_generator(
                 )
                 if dist.get_rank(parallel_context.pp_pg) == output_pp_rank
                 else TensorPointer(group_rank=output_pp_rank),
+
                 "label_mask": torch.ones(
                     micro_batch_size,
                     sequence_length,
@@ -347,10 +350,10 @@ class DataCollatorForCLM:
         ]:
             assert all(len(example) == 0 for example in examples)
             return {
-                "input_ids": TensorPointer(self.input_pp_rank),
-                "input_mask": TensorPointer(self.input_pp_rank),
-                "label_ids": TensorPointer(self.output_pp_rank),
-                "label_mask": TensorPointer(self.output_pp_rank),
+                "input_ids": TensorPointer(group_rank=self.input_pp_rank),
+                "input_mask": TensorPointer(group_rank=self.input_pp_rank),
+                "label_ids": TensorPointer(group_rank=self.output_pp_rank),
+                "label_mask": TensorPointer(group_rank=self.output_pp_rank),
             }
 
         # Make sure we load only what's necessary, ie we only load a `input_ids` column.
@@ -475,6 +478,7 @@ def get_train_dataloader(
         # HACK as if we remove the last column of a train_dataset, it becomes empty and it's number of rows becomes empty.
         train_dataset = EmptyInfiniteDataset(length=dataset_length)
         # No need to spawn a lot of workers, we can just use main
+        # Aqui diria que habia escrito cosas, de todos modos, todos tienen el dataset solo que unos lo eliminan por uno dummy que en collator ya pondra todo en su sitio
         dataloader_num_workers = 0
 
     data_collator = DataCollatorForCLM(
@@ -492,9 +496,9 @@ def get_train_dataloader(
     # TODO @nouamanetazi: Support torch.utils.data.IterableDataset: https://github.com/huggingface/transformers/blob/47e1676255e5dd86b9541f734cd4f4bdcbb50f4a/src/transformers/trainer.py#L855-L872
 
     train_sampler = _get_train_sampler(
-        dl_rank=dp_rank,
-        dl_ranks_size=dp_ranks_size,
         train_dataset=train_dataset,
+        dl_ranks_size=dp_ranks_size,
+        dl_rank=dp_rank,
         seed=seed_worker,
         use_loop_to_round_batch_size=use_loop_to_round_batch_size,
         micro_batch_size=micro_batch_size,

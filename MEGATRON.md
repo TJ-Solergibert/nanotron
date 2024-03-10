@@ -12,6 +12,8 @@ micro_batch (micro_batch.pkl) looks like:
 - label_ids are next tokens of input_ids
 - masks are just `True`
 
+En el collator recibimos examples, que es una lista con 4 dicts con 'input ids' [seq_len+1]! Esto de la lista rara y tal debe de ser del dataloader, asi que confiamos. Vale, lo recibimos asi porque es como viene del dataset/o del dataloader, tendremos que modificar el collator. a partir de un punto, parece que recibe [micro_batch_size, seq_len+1]
+
 ## Megatron
 In get_batch the next(data_iterator) we get a dict containing a "text" field with a tensor of shape [micro_batch_size, seq_len+1]. The tokens_ is just the tensor itself without the dict. 
 
@@ -22,6 +24,9 @@ Hay 2 cosas: Dataset y dataloading. Para no liarla mucho, mejor hacer que el dat
 Acordarse que en Megatron el data iterator lo tienen solo 1 proceso de los que hayan de data parallel... ojo con esto, porque en nanotron lo deben de tener todos...
 
 En nanotron para el distributed sampler: Todos lo crean, solo que los procesos del mismo tensor parallel rank CREAN el mismo, por lo que leen lo mismo. Perfecto, tenemos mas lecturas eso si pero nos ahorramos el broadcast.
+
+
+Ver como funciona el dataloader de megatron si es que tiene
 
 # 2. How are the batches build?
 ## nanotron (build masks and labels_ids?)
