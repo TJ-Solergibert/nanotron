@@ -47,7 +47,7 @@ class GPTDataset(MegatronDataset):
         
         Load or build/cache the document, sample, and shuffle indices
         """
-        assert isinstance(self.config, GPTDatasetConfig)
+        #assert isinstance(self.config, GPTDatasetConfig)
 
         (
             self.document_index,
