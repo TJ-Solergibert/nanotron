@@ -1,0 +1,110 @@
+"""
+Nanotron training script.
+
+Usage:
+```
+export CUDA_DEVICE_MAX_CONNECTIONS=1 # important for some distributed operations
+torchrun --nproc_per_node=8 run_train.py --config-file examples/config_tiny_llama.yaml
+```
+"""
+import argparse
+
+from nanotron import logging
+from nanotron.config import (
+    PretrainDatasetsArgs,
+)
+from nanotron.dataloader import (
+    clm_process,
+    dummy_infinite_data_generator,
+    get_datasets,
+    get_train_dataloader,
+)
+
+from nanotron.parallel.pipeline_parallel.utils import get_input_output_pp_ranks
+from nanotron.trainer import DistributedTrainer
+from nanotron.utils import (
+    main_rank_first,
+)
+
+try:
+    from huggingface_hub import __version__ as hf_hub_version
+    from transformers import AutoTokenizer
+    from transformers import __version__ as tf_version
+except ImportError:
+    hf_hub_version = None
+    tf_version = None
+
+from nanotron.data.dataloader import build_megatron_dataloader, build_megatron_datasets
+
+logger = logging.get_logger(__name__)
+
+def get_megatron_dataloaders(trainer: DistributedTrainer):
+    """Returns train, valid and test dataloaders"""
+
+    # First, we need to know which ranks to feed the dataloader to
+    input_pp_rank, output_pp_rank = get_input_output_pp_ranks(model=trainer.model)
+
+    train_dataset, valid_dataset, test_dataset = build_megatron_datasets()
+
+    # Prepare train, valid and test dataloaders
+    train_dataloader = build_megatron_dataloader(
+        train_dataset,
+        trainer.sequence_length,
+        parallel_context=trainer.parallel_context,
+        input_pp_rank=input_pp_rank,
+        output_pp_rank=output_pp_rank,
+        micro_batch_size=trainer.micro_batch_size,
+        consumed_train_samples=trainer.consumed_train_samples,
+        dataloader_num_workers=trainer.config.data.num_loading_workers,
+        seed_worker=trainer.config.data.seed,
+        dataloader_drop_last=True,
+    )
+
+    valid_dataloader = build_megatron_dataloader(
+        valid_dataset,
+        trainer.sequence_length,
+        parallel_context=trainer.parallel_context,
+        input_pp_rank=input_pp_rank,
+        output_pp_rank=output_pp_rank,
+        micro_batch_size=trainer.micro_batch_size,
+        consumed_train_samples=0,
+        dataloader_num_workers=trainer.config.data.num_loading_workers,
+        seed_worker=trainer.config.data.seed,
+        dataloader_drop_last=True,
+    )
+
+    test_dataloader = build_megatron_dataloader(
+        test_dataset,
+        trainer.sequence_length,
+        parallel_context=trainer.parallel_context,
+        input_pp_rank=input_pp_rank,
+        output_pp_rank=output_pp_rank,
+        micro_batch_size=trainer.micro_batch_size,
+        consumed_train_samples=0,
+        dataloader_num_workers=trainer.config.data.num_loading_workers,
+        seed_worker=trainer.config.data.seed,
+        dataloader_drop_last=True,
+    )
+
+    return train_dataloader, valid_dataloader, test_dataloader
+
+
+
+
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config-file", type=str, required=True, help="Path to the YAML or python config file")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = get_args()
+    config_file = args.config_file
+
+    # Load trainer and data
+    trainer = DistributedTrainer(config_file)
+    # TODO Like that or in a tuple?
+    train_dataloader, valid_dataloader, test_dataloader = get_megatron_dataloaders(trainer)
+
+    # Train
+    trainer.train(train_dataloader)

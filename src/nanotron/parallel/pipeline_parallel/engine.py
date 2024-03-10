@@ -27,7 +27,7 @@ class PipelineEngine(ABC):
         self,
         context: ContextManagers,
         state: PipelineTrainBatchState,
-        micro_batch: Dict[str, Union[torch.Tensor, TensorPointer]],
+        micro_batch: Dict[str, Union[torch.Tensor, TensorPointer]], # Aqui la microbatch YA esta hecha
         model: torch_nn.Module,
     ) -> Dict[str, Union[torch.Tensor, TensorPointer]]:
         # Increment the number of backwards
