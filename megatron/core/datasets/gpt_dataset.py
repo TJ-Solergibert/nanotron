@@ -74,10 +74,14 @@ class GPTDataset(MegatronDataset):
             dictionary
         """
         text, document_ids = self._query_document_sample_shuffle_indices(idx)
+        # TODO we deleted document_ids
+        """
         if getattr(self.config, "return_document_ids"):
             return {"text": text, "document_ids": document_ids}
         else:
             return {"text": text}
+        """
+        return {"text": text}
 
     @staticmethod
     def is_multimodal() -> bool:

@@ -38,15 +38,11 @@ def log_single_rank(logger: logging.Logger, *args, rank=0, **kwargs):
 
         rank (int, optional): The rank to write on. Defaults to 0.
     """
-    """
     if torch.distributed.is_initialized():
         if torch.distributed.get_rank() == rank:
             logger.log(*args, **kwargs)
     else:
         logger.log(*args, **kwargs)
-    """
-    print(*args)
-    print(**kwargs)
 
 
 def normalize(weights: List[float]) -> List[float]:
