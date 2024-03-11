@@ -8,6 +8,7 @@ from typing import Dict, Tuple
 import numpy
 import torch
 
+# TODO eliminar estas referencias por dios !!!!!!!! No crashea porque tengo la carpeta sino estariamos muertos
 from megatron.core.datasets.blended_megatron_dataset_config import GPTDatasetConfig
 from megatron.core.datasets.indexed_dataset import MMapIndexedDataset
 from megatron.core.datasets.megatron_dataset import MegatronDataset
@@ -280,7 +281,7 @@ class GPTDataset(MegatronDataset):
                 f"\tBuild and save the sample index to {os.path.basename(path_to_sample_index)}",
             )
             t_beg = time.time()
-            from megatron.core.datasets import helpers
+            from nanotron.data import helpers
 
             assert document_index.dtype == numpy.int32
             assert self.indexed_dataset.sequence_lengths.dtype == numpy.int32

@@ -1,0 +1,8 @@
+packaging==23.2
+torch==2.2.1
+flash-attn==2.5.5
+tensorboardX==2.6.2.2
+transformers==4.38.1
+datasets==2.17.1
+python-etcd==0.4.5
+#nanotron @ git+https://github.com/swiss-ai/nanotron.git
