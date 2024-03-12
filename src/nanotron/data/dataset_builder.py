@@ -1,86 +1,81 @@
-# Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+# AQUI TODA LA MIERDA PARA BUILDEAR LOS DATASETS. PRIMERO INCORPORAREMOS SOLO EL NANOSET, EN EL 
+# FUTURO INCOPORAREMOS EL BLENDED NANOSET.
 
-import logging
+
+# NANOSETBUILDER!!!! O DATASETBUILDER MEJOR, PARA CUANDO ACEPTEMOS BLENDS
+
+from nanotron import logging
 import math
 from typing import Any, List, Optional, Tuple, Type, Union
 
 import numpy
 import torch
 
-from nanotron.data.blended_dataset import BlendedDataset # TODO Investigar si el blended dataset lo usamos con 1 data_path, sino quitar y ya lo añadiremos
-from nanotron.data.blended_megatron_dataset_config import GPTDatasetConfig
+from nanotron.data.nanoset import NanosetConfig, Nanoset
 from nanotron.data.indexed_dataset import MMapIndexedDataset
-from nanotron.data.megatron_dataset import MegatronDataset
 from nanotron.data.utils import Split, normalize
 
 logger = logging.getLogger(__name__)
 
-DistributedDataset = Union[BlendedDataset, MegatronDataset, MMapIndexedDataset]
+DistributedDataset = Union[Nanoset, MMapIndexedDataset]
 
-
-class BlendedMegatronDatasetBuilder(object):
-    """Builder class for the BlendedDataset and MegatronDataset classes
+class NanosetBuilder(object):
+    """Builder class for the Nanoset classes
 
     Args:
-        cls (Type[MegatronDataset]): The class to instantiate, must inherit from MegatronDataset
 
-        sizes (List[int]): The minimum number of total samples to draw from each split, varies
-        with data_path
-
-        config (GPTDatasetConfig): The config object which informs dataset creation
+        config (NanosetConfig): The config object which informs dataset creation
     """
 
     def __init__(
-        self, cls: Type[MegatronDataset], sizes: List[int], config: GPTDatasetConfig,
+        self, config: NanosetConfig,
     ):
-        self.cls = cls
-        self.sizes = sizes
         self.config = config
+        self.sizes = config.split_sizes 
+        self.cls = Nanoset # NOTE: keep it like that to support BlendedNanoset in the future
 
-    def build(self) -> List[Optional[Union[BlendedDataset, MegatronDataset]]]:
+    def build(self) -> List[Nanoset]:
         """Build all dataset splits according to the provided data_path(s)
         
         This method is distributed-aware and must be called on all ranks.
         
         The dataset splits returned can vary according to the config. Supply config.data_path and
-        config.split to build BlendedDataset and/or MegatronDataset splits from the same
-        distribution. Supply config.data_path_per_split to build BlendedDataset and/or MegatronDataset
+        config.split to build BlendedNanoset and/or Nanoset splits from the same
+        distribution. Supply config.data_path_per_split to build BlendedNanoset and/or Nanoset
         splits from separate distributions.
 
         Returns:
-            List[Optional[Union[BlendedDataset, MegatronDataset]]]: A list of either
-            MegatronDataset or BlendedDataset (or None) per split
+            List[Union[BlendedNanoset, Nanoset]]: A list of either
+            Nanoset or BlendedNanoset per split
         """
         return self._build_blended_dataset_splits()
 
     def _build_blended_dataset_splits(
         self,
-    ) -> List[Optional[Union[BlendedDataset, MegatronDataset]]]:
+    ) -> List[Nanoset]:
         """Build all dataset splits according to the provided data_path(s)
         
-        See the BlendedMegatronDatasetBuilder.build alias for more information.
+        See the NanosetBuilder.build alias for more information.
 
         Returns:
-            List[Optional[Union[BlendedDataset, MegatronDataset]]]: A list of either
-            MegatronDataset or BlendedDataset (or None) per split
+            List[Optional[Union[BlendedNanoset, Nanoset]]]: A list of either
+            Nanoset or BlendedNanoset per split
         """
 
         data_path = getattr(self.config, "data_path")
         split = getattr(self.config, "split_vector")
 
-        # TODO: data_path consists of a single prefix
-        # TODO: Refer to Megatron to check how to work with multiple data_paths datasets. For now we don't support it
-        # TODO: In megatron you can have a single split for the blend of multiple datasets or a custom split for each and every dataset
-        # TODO: For now, just keep going with 1 dataset. We plan to support blending multiple datasets. The split_per_blend thing I don't think so
-        # TODO: Blend consists of multiple weights and prefixes
+        # NOTE: For including blended datasets (BlendedNanoset)
+        # NOTE: Refer to Megatron to check how to work with multiple data_paths datasets. For now we don't support it
+        # NOTE: https://github.com/TJ-Solergibert/Megatron-debug/blob/c5eda947d9728d21b03d77b7db56cb71513d5636/megatron/core/datasets/blended_megatron_dataset_builder.py#L81
         data_path = [data_path]
         if len(data_path) == 1:
-            return self._build_megatron_dataset_splits(data_path[0], split, self.sizes)
+            return self._build_nanoset_dataset_splits(data_path[0], split, self.sizes)
 
-    def _build_megatron_dataset_splits(
+    def _build_nanoset_dataset_splits(
         self, path_prefix: str, split: List[float], sizes: List[int],
-    ) -> List[Optional[MegatronDataset]]:
-        """Build each MegatronDataset split from a single MMapIndexedDataset
+    ) -> List[Nanoset]:
+        """Build each Nanoset split from a single MMapIndexedDataset
 
         Args:
             path_prefix (str): The MMapIndexedDataset .bin and .idx file prefix
@@ -90,53 +85,44 @@ class BlendedMegatronDatasetBuilder(object):
             sizes (List[int]): The number of total samples to draw from each split
 
         Returns:
-            List[Optional[MegatronDataset]]: The MegatronDatset (or None) per split
+            List[Nanoset]: The Nanoset per split. Always returns Nanosets because we build them in each and every rank 
         """
-        # NOTE self.cls.is_multimodal() in GPTDataset always False
+        
         indexed_dataset = self._build_generic_dataset(
             MMapIndexedDataset, path_prefix, False
         )
-
-        # TODO Refractor this if because in Nanotron all processes create the dataset so its always True. VAMOS SOLAMENTE QUITAR ESTE IF/ELSE PORQUE SIEMPRE ES TRUE
-        if indexed_dataset is not None:
-            # NOTE if self.cls.is_split_by_sequence(): in GPTDataset always True
-            split_idx_bounds = _get_split_indices(
-                split, indexed_dataset.sequence_lengths.shape[0]
+        
+        split_idx_bounds = _get_split_indices(
+            split, indexed_dataset.sequence_lengths.shape[0]
+        )
+        
+        split_indices = [
+            numpy.arange(
+                start=split_idx_bounds[i],
+                stop=split_idx_bounds[i + 1],
+                step=1,
+                dtype=numpy.int32,
             )
-            
-            split_indices = [
-                numpy.arange(
-                    start=split_idx_bounds[i],
-                    stop=split_idx_bounds[i + 1],
-                    step=1,
-                    dtype=numpy.int32,
-                )
-                for i, _ in enumerate(Split)
-            ]
-        # TODO refer to L97 TODO
-        else:
-            split_indices = [None for _ in Split]
+            for i, _ in enumerate(Split)
+        ]
 
-        megatron_datasets = []
+        nanoset_datasets = []
         for i, _split in enumerate(Split):
             if split[i] == 0.0:
-                megatron_datasets.append(None)
+                nanoset_datasets.append(None)
             else:
-                megatron_datasets.append(
+                nanoset_datasets.append(
                     self._build_generic_dataset(
                         self.cls, indexed_dataset, split_indices[i], sizes[i], _split, self.config
                     )
                 )
 
-        return megatron_datasets
+        return nanoset_datasets
 
     def _build_generic_dataset(
         self, cls: Type[DistributedDataset], *args: Any,
     ) -> Optional[DistributedDataset]:
         """Build the DistributedDataset
-
-        Return None if and only if the underlying MegatronDataset class is not built on the current
-        rank and torch.distributed is initialized.
 
         Args:
             cls (Type[DistributedDataset]): The DistributedDataset class to be built
@@ -148,7 +134,7 @@ class BlendedMegatronDatasetBuilder(object):
             Exception: When the dataset constructor raises an OSError
 
         Returns:
-            Optional[DistributedDataset]: The DistributedDataset instantion or None
+            DistributedDataset: The DistributedDataset instantion
         """
         if torch.distributed.is_initialized():
             rank = torch.distributed.get_rank()
@@ -163,15 +149,13 @@ class BlendedMegatronDatasetBuilder(object):
                     log = (
                         f"Failed to write dataset materials to the data cache directory. "
                         + f"Please supply a directory to which you have write access via "
-                        + f"the path_to_cache attribute in GPTDatasetConfig and "
+                        + f"the path_to_cache attribute in NanosetConfig and "
                         + f"retry. Refer to the preserved traceback above for more information."
                     )
                     raise Exception(log) from err
 
             torch.distributed.barrier()
 
-            # After, build on other ranks
-            # TODO Change for else
             if rank != 0:
                 dataset = cls(*args)
 
@@ -205,23 +189,23 @@ def _get_split_indices(split: List[float], num_elements: int) -> List[int]:
 
     return split_indices
 
-
-def _get_prefixes_weights_and_sizes_for_data_path(
+# NOTE: Keep for BlendedNanoset
+def _get_prefixes_weights_and_sizes_for_blend(
     data_path: List[str], target_num_samples_per_split: List[int]
 ) -> Tuple[List[str], List[float], List[List[int]]]:
-    """Determine the contribution of the MegatronDataset splits to the BlendedDataset splits
+    """Determine the contribution of the Nanoset splits to the BlendedNanoset splits
     
     Args:
         data_path (List[str]): e.g. ["30", "path/to/dataset_1_prefix", "70", 
         "path/to/dataset_2_prefix"]
 
         target_num_samples_per_split (List[int]): The number of samples to target for each
-        BlendedDataset split
+        BlendedNanoset split
 
     Returns:
         Tuple[List[str], List[float], List[List[int]]]: The prefix strings e.g.
         ["path/to/dataset_1_prefix", "path/to/dataset_2_prefix"], the normalized weights e.g.
-        [0.3, 0.7], and the number of samples to request per MegatronDataset per split
+        [0.3, 0.7], and the number of samples to request per Nanoset per split
     """
     weights, prefixes = zip(
         *[(float(data_path[i]), data_path[i + 1].strip()) for i in range(0, len(data_path), 2)]
@@ -229,7 +213,7 @@ def _get_prefixes_weights_and_sizes_for_data_path(
 
     weights = normalize(weights)
 
-    # Use 0.5% target margin to ensure we satiate the network
+    # NOTE: Use 0.5% target margin to ensure we satiate the network
     sizes_per_dataset = [
         [
             int(math.ceil(target_num_samples * weight * 1.005))

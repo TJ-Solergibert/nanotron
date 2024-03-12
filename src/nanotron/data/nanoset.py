@@ -1,36 +1,38 @@
-# Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+# AQUI EL NANOSET, QUE ES FUSION DE GPTDATASET Y MEGATRON DATASET. METER LAS CONFIGS TAMBIEN
+# Al final no metemos aqui la config, la mandamos a otro fichero
+from nanotron import logging
+from nanotron.logging import log_rank
 
-import logging
+import hashlib
+import json
 import os
 import time
-from typing import Dict, Tuple
+from collections import OrderedDict
+from typing import Dict, List, Tuple
 
-import numpy
 import torch
+import numpy
 
-# TODO eliminar estas referencias por dios !!!!!!!! No crashea porque tengo la carpeta sino estariamos muertos
-from nanotron.data.blended_megatron_dataset_config import GPTDatasetConfig
+from nanotron.data.nanoset_configs import NanosetConfig
 from nanotron.data.indexed_dataset import MMapIndexedDataset
-from nanotron.data.megatron_dataset import MegatronDataset
-from nanotron.data.utils import Split, log_single_rank
+from nanotron.data.utils import Split
 
 logger = logging.getLogger(__name__)
 
-
-class GPTDataset(MegatronDataset):
-    """The base GPT dataset
+class Nanoset(torch.data.utils.Dataset):
+    """The base Nanoset dataset
 
     Args:
         indexed_dataset (MMapIndexedDataset): The MMapIndexedDataset around which to build the
-        MegatronDataset
+        Nanoset
 
         indexed_indices (numpy.ndarray): The set of the documents indices to expose
 
         num_samples (int): The number of samples to draw from the indexed dataset
 
-        index_split (Split): The indexed_indices Split
+        index_split (Split): The indexed_indices Split (train, valid, test)
 
-        config (GPTDatasetConfig): The GPT-specific container for all config sourced parameters
+        config (NanosetConfig): The Nanoset-specific container for all config sourced parameters
     """
 
     def __init__(
@@ -39,16 +41,41 @@ class GPTDataset(MegatronDataset):
         indexed_indices: numpy.ndarray,
         num_samples: int,
         index_split: Split,
-        config: GPTDatasetConfig,
+        config: NanosetConfig,
     ) -> None:
-        super().__init__(indexed_dataset, indexed_indices, num_samples, index_split, config)
+        
+        assert indexed_indices.size > 0
+        assert num_samples > 0
+        assert self.is_multimodal() == indexed_dataset.multimodal
+        assert self.is_split_by_sequence() != self.is_split_by_document()
+
+        self.indexed_dataset = indexed_dataset
+        self.indexed_indices = indexed_indices
+        self.num_samples = num_samples
+        self.index_split = index_split
+        self.config = config
+
+        self.unique_identifiers = OrderedDict()
+        self.unique_identifiers["class"] = type(self).__name__
+        self.unique_identifiers["path_prefix"] = self.indexed_dataset.path_prefix
+        self.unique_identifiers["num_samples"] = self.num_samples
+        self.unique_identifiers["index_split"] = self.index_split.name
+        for attr in self._key_config_attributes():
+            self.unique_identifiers[attr] = getattr(self.config, attr)
+
+        self.unique_description = json.dumps(self.unique_identifiers, indent=4)
+        self.unique_description_hash = hashlib.md5(
+            self.unique_description.encode("utf-8")
+        ).hexdigest()
+
+        self._finalize()
 
     def _finalize(self) -> None:
         """Abstract method implementation
         
         Load or build/cache the document, sample, and shuffle indices
         """
-        #assert isinstance(self.config, GPTDatasetConfig)
+        assert isinstance(self.config, NanosetConfig)
 
         (
             self.document_index,
@@ -74,16 +101,11 @@ class GPTDataset(MegatronDataset):
             Dict[str, numpy.ndarray]: The text ids and (optionally) the document ids wrapped in a
             dictionary
         """
-        text, document_ids = self._query_document_sample_shuffle_indices(idx)
-        # TODO we deleted document_ids
-        """
-        if getattr(self.config, "return_document_ids"):
-            return {"text": text, "document_ids": document_ids}
-        else:
-            return {"text": text}
-        """
+        text, _ = self._query_document_sample_shuffle_indices(idx)
+        
         return {"text": text}
 
+    # TODO: Delete this shit if not used?
     @staticmethod
     def is_multimodal() -> bool:
         """Abstract method implementation
@@ -93,6 +115,7 @@ class GPTDataset(MegatronDataset):
         """
         return False
 
+    # TODO: Delete this shit if not used?
     @staticmethod
     def is_split_by_sequence() -> bool:
         """Abstract method implementation
@@ -101,6 +124,33 @@ class GPTDataset(MegatronDataset):
             bool: True
         """
         return True
+    
+    # TODO: Delete this shit if not used?
+    @classmethod
+    def is_split_by_document(cls) -> bool:
+        """Return whether the dataset is split by document
+
+        For example, the BERT train/valid/test split is document aware
+
+        Returns:
+            bool: The negation of cls.is_split_by_sequence
+        """
+        return not cls.is_split_by_sequence()
+
+    # TODO: Delete this shit if not used?
+    @staticmethod
+    def _key_config_attributes() -> List[str]:
+        """Return all config attributes which contribute to uniquely identifying the dataset.
+
+        These attributes will be used to build a uniquely identifying string and MD5 hash which
+        will be used to cache/load the dataset from run to run.
+
+        Returns:
+            List[str]: The key config attributes
+        """
+        return ["split", "random_seed", "sequence_length"]
+    
+    ###################
 
     def _query_document_sample_shuffle_indices(
         self, idx: int
@@ -210,10 +260,11 @@ class GPTDataset(MegatronDataset):
         num_epochs = _get_num_epochs(num_tokens_per_epoch, sequence_length, self.num_samples)
 
         if not cache_hit and torch.distributed.get_rank() == 0:
-            log_single_rank(
-                logger,
-                logging.INFO,
+            log_rank(
                 f"Build and save the {type(self).__name__} {self.index_split.name} indices",
+                logger=logger, 
+                level=logging.INFO, 
+                rank=0
             )
 
             if num_epochs == 1:
@@ -238,18 +289,19 @@ class GPTDataset(MegatronDataset):
                     threshold * num_samples_per_epoch
                 )
 
-                log_single_rank(
-                    logger,
-                    logging.DEBUG,
+                log_rank(
                     f"> num_samples_from_final_epoch: {num_samples_from_final_epoch}",
+                    logger=logger, 
+                    level=logging.DEBUG, 
+                    rank=0
                 )
-                log_single_rank(logger, logging.DEBUG, f"> threshold: {threshold}")
-                log_single_rank(
-                    logger, logging.DEBUG, f"> num_samples_per_epoch: {num_samples_per_epoch}"
+                log_rank(f"> threshold: {threshold}", logger=logger, level=logging.DEBUG, rank=0)
+                log_rank(
+                    f"> num_samples_per_epoch: {num_samples_per_epoch}", logger=logger, level=logging.DEBUG, rank=0
                 )
 
-            log_single_rank(
-                logger, logging.DEBUG, f"> separate_final_epoch: {separate_final_epoch}"
+            log_rank(
+                f"> separate_final_epoch: {separate_final_epoch}", logger=logger, level=logging.DEBUG, rank=0
             )
 
             numpy_random_state = numpy.random.RandomState(getattr(self.config, "random_seed"))
@@ -261,10 +313,9 @@ class GPTDataset(MegatronDataset):
                 writer.write(self.unique_description)
 
             # Build the document index
-            log_single_rank(
-                logger,
-                logging.INFO,
+            log_rank(
                 f"\tBuild and save the document index to {os.path.basename(path_to_document_index)}",
+                logger=logger, level=logging.INFO, rank=0
             )
             t_beg = time.time()
             document_index = _build_document_index(
@@ -272,13 +323,12 @@ class GPTDataset(MegatronDataset):
             )
             numpy.save(path_to_document_index, document_index, allow_pickle=True)
             t_end = time.time()
-            log_single_rank(logger, logging.DEBUG, f"\t> time elapsed: {t_end - t_beg:4f} seconds")
+            log_rank(f"\t> time elapsed: {t_end - t_beg:4f} seconds", logger=logger, level=logging.DEBUG, rank=0)
 
             # Build the sample index
-            log_single_rank(
-                logger,
-                logging.INFO,
-                f"\tBuild and save the sample index to {os.path.basename(path_to_sample_index)}",
+            log_rank(
+                f"\tBuild and save the sample index to {os.path.basename(path_to_sample_index)}", 
+                logger=logger, level=logging.INFO, rank=0
             )
             t_beg = time.time()
             from nanotron.data import helpers
@@ -294,13 +344,12 @@ class GPTDataset(MegatronDataset):
             )
             numpy.save(path_to_sample_index, sample_index, allow_pickle=True)
             t_end = time.time()
-            log_single_rank(logger, logging.DEBUG, f"\t> time elapsed: {t_end - t_beg:4f} seconds")
+            log_rank(f"\t> time elapsed: {t_end - t_beg:4f} seconds", logger=logger, level=logging.DEBUG, rank=0)
 
             # Build the shuffle index
-            log_single_rank(
-                logger,
-                logging.INFO,
+            log_rank(
                 f"\tBuild and save the shuffle index to {os.path.basename(path_to_shuffle_index)}",
+                logger=logger, level=logging.INFO, rank=0
             )
             t_beg = time.time()
             if separate_final_epoch:
@@ -313,46 +362,44 @@ class GPTDataset(MegatronDataset):
                 )
             numpy.save(path_to_shuffle_index, shuffle_index, allow_pickle=True)
             t_end = time.time()
-            log_single_rank(logger, logging.DEBUG, f"\t> time elapsed: {t_end - t_beg:4f} seconds")
+            log_rank(f"\t> time elapsed: {t_end - t_beg:4f} seconds", logger=logger, level=logging.DEBUG, rank=0)
 
-        log_single_rank(
-            logger, logging.INFO, f"Load the {type(self).__name__} {self.index_split.name} indices"
+        log_rank(
+            f"Load the {type(self).__name__} {self.index_split.name} indices", 
+            logger=logger, level=logging.INFO, rank=0
         )
 
-        log_single_rank(
-            logger,
-            logging.INFO,
+        log_rank(
             f"\tLoad the document index from {os.path.basename(path_to_document_index)}",
+            logger=logger, level=logging.INFO, rank=0
         )
         t_beg = time.time()
         document_index = numpy.load(path_to_document_index, allow_pickle=True, mmap_mode='r')
         t_end = time.time()
-        log_single_rank(logger, logging.DEBUG, f"\t> time elapsed: {t_end - t_beg:4f} seconds")
+        log_rank(f"\t> time elapsed: {t_end - t_beg:4f} seconds", logger=logger, level=logging.DEBUG, rank=0)
 
-        log_single_rank(
-            logger,
-            logging.INFO,
+        log_rank(
             f"\tLoad the sample index from {os.path.basename(path_to_sample_index)}",
+            logger=logger, level=logging.INFO, rank=0
         )
         t_beg = time.time()
         sample_index = numpy.load(path_to_sample_index, allow_pickle=True, mmap_mode='r')
         t_end = time.time()
-        log_single_rank(logger, logging.DEBUG, f"\t> time elapsed: {t_end - t_beg:4f} seconds")
+        log_rank(f"\t> time elapsed: {t_end - t_beg:4f} seconds", logger=logger, level=logging.DEBUG, rank=0)
 
-        log_single_rank(
-            logger,
-            logging.INFO,
+        log_rank(
             f"\tLoad the shuffle index from {os.path.basename(path_to_shuffle_index)}",
+            logger=logger, level=logging.INFO, rank=0
         )
         t_beg = time.time()
         shuffle_index = numpy.load(path_to_shuffle_index, allow_pickle=True, mmap_mode='r')
         t_end = time.time()
-        log_single_rank(logger, logging.DEBUG, f"\t> time elapsed: {t_end - t_beg:4f} seconds")
+        log_rank(f"\t> time elapsed: {t_end - t_beg:4f} seconds", logger=logger, level=logging.DEBUG, rank=0)
 
-        log_single_rank(
-            logger, logging.INFO, f"> total number of samples: {sample_index.shape[0] - 1}"
+        log_rank(
+            f"> total number of samples: {sample_index.shape[0] - 1}", logger=logger, level=logging.INFO, rank=0
         )
-        log_single_rank(logger, logging.INFO, f"> total number of epochs: {num_epochs}")
+        log_rank(f"> total number of epochs: {num_epochs}", logger=logger, level=logging.INFO, rank=0)
 
         return document_index, sample_index, shuffle_index
 
@@ -463,3 +510,4 @@ def _build_shuffle_index(
     numpy_random_state.shuffle(shuffle_idx_last)
 
     return numpy.concatenate((shuffle_idx_first, shuffle_idx_last))
+

@@ -242,7 +242,7 @@ def dummy_infinite_data_generator(
 
     return data_generator
 
-
+# QUESTION: Move it to nanotron.data.dataloader_builder?
 # Adapted from https://github.com/huggingface/accelerate/blob/a73898027a211c3f6dc4460351b0ec246aa824aa/src/accelerate/data_loader.py#L781C1-L824C28
 class SkipBatchSampler(BatchSampler):
     """
@@ -519,7 +519,7 @@ def get_train_dataloader(
         # pin_memory_device="cuda",
     )
 
-
+# QUESTION: Move it to nanotron.data.dataloader_builder?
 def get_dataloader_worker_init(dp_rank: int):
     """Creates random states for each worker in order to get different state in each workers"""
 
@@ -530,7 +530,7 @@ def get_dataloader_worker_init(dp_rank: int):
 
     return dataloader_worker_init
 
-
+# QUESTION: Move it to nanotron.data.dataloader_builder?
 class EmptyInfiniteDataset:
     """Hack as removing all columns from a datasets.Dataset makes the number of rows 0."""
 

@@ -1,14 +1,11 @@
+# AQUI TODO LO RELACIONADO CON BUILDING DATALOADER: EL COLLATOR SAMPLER ETC
 from nanotron import logging
 from nanotron.logging import log_rank
 
-import torch.distributed as dist # TODO change for nanotron function. Just used to check for rank 0 to build the helpers
-from torch.utils.data import BatchSampler, DataLoader # TODO Quit BatchSampler
+import nanotron.distributed as dist
+from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from nanotron.dataloader import SkipBatchSampler, get_dataloader_worker_init
-
-from nanotron.data.blended_megatron_dataset_config import GPTDatasetConfig
-from nanotron.data.blended_megatron_dataset_builder import BlendedMegatronDatasetBuilder
-from nanotron.data.gpt_dataset import GPTDataset
+from nanotron.dataloader import SkipBatchSampler, EmptyInfiniteDataset, get_dataloader_worker_init # QUESTION: Move them here?
 
 from dataclasses import dataclass
 import torch
@@ -16,11 +13,11 @@ import numpy as np
 from typing import Dict, List, Union, Optional
 from nanotron.parallel.pipeline_parallel.tensor_pointer import TensorPointer
 from nanotron.parallel import ParallelContext
-from nanotron.dataloader import EmptyInfiniteDataset
 
 logger = logging.get_logger(__name__)
 
-def build_megatron_dataloader(
+########### Nos quedamos aqui!!!!!!! ###########
+def build_nanoset_dataloader(
         dataset,
         sequence_length: int,
         parallel_context: ParallelContext,
@@ -37,10 +34,12 @@ def build_megatron_dataloader(
 
     # Case of ranks not requiring data. We give them a dummy dataset, then the collator will do his job
     # TODO Actually give dummy dataset, for now we are just passing the same dataset. In all processes we access the dataset despite its useless
-
+    # TODO CAMBIAR ESTO 1000000%%%%!!!!!
+    # TODO Ya esta hecho jajajjajajajjjajjajaj
 
     # Case of ranks requiring data
     # TODO: This is also in the build dataloader funct, so we can keep it here
+    # Ya esta hecha la sustitucion jajajajjajajjajaja
     if not dist.get_rank(parallel_context.pp_pg) in [
         input_pp_rank,
         output_pp_rank,
@@ -50,7 +49,7 @@ def build_megatron_dataloader(
         # No need to spawn a lot of workers, we can just use main
         dataloader_num_workers = 0
     
-    data_collator = MegatronDataCollatorForCLM(
+    data_collator = NanosetDataCollatorForCLM(
         sequence_length=sequence_length,
         input_pp_rank=input_pp_rank,
         output_pp_rank=output_pp_rank,
@@ -87,57 +86,8 @@ def build_megatron_dataloader(
         # pin_memory_device="cuda",
     )
 
-def build_megatron_datasets(
-        seed: int,
-        sequence_length: int,
-        data_path: str,
-        split: str,
-        # TODO: Check train_val_test_num_samples vs the one stored in the yaml file
-        # TODO Okey, this in not in the yaml file: Just move this calculo to the outer func
-        train_iters: int,
-        eval_interval: int,
-        eval_iters: int,
-        global_batch_size: int,
-        train_val_test_num_samples: Union[list, dict] # TODO Support dicts for future update with multiple data_paths
-): 
-    # TODO MOVE THIS TO TRAINER INIT IF DATASET ARGS ARE MEGATRONDATASETARGS
-    # Install helpers. Only performed by 1 process
-    if dist.get_rank() == 0:
-        log_rank("Compiling dataset index builder ...", logger=logger, level=logging.INFO, rank=0)
-        from nanotron.data.utils import compile_helpers
-
-        compile_helpers()
-        log_rank("Done with dataset index builder.", logger=logger, level=logging.INFO, rank=0)
-    
-    # Create GPT Dataset config 
-    # TODO Change for config args of trainer, they will belong to the .yaml file
-    gpt_config = GPTDatasetConfig(
-        random_seed=seed,
-        sequence_length=sequence_length,
-        data_path=data_path,
-        split=split,
-    )
-
-    # TODO compute train_val_test_num_samples!!!!!!!!!! 
-    # Añadir los prints de megatron de cuantos tokens ya, cuantas batches y tokens?
-    # Hay las iters y las samples. Primero se calcula el numero total de iters y se multiplica por la 
-    # Global batch size para tener el numero de samples
-    # Vale a ver: Train iters es un numero, el numero de samples sera train_iter * global batch size
-    # Valid es primero calcular el numero de iters (12 trainig iters y eval-interval de 5 hara eval en 5, 10 y 12)
-    # que con 5 eval iters hara un total de 15 iters y un total de samples de 15 iters * global batch size
-    # TODO MOVE THIS CALCULO FUERA !!!!!
-    train_val_test_num_samples = compute_datasets_num_samples(train_iters=train_iters,
-                                                            eval_interval=eval_interval, 
-                                                            eval_iters=eval_iters,
-                                                            global_batch_size=global_batch_size)
-    # TODO Quit GPTDataset and introduce the num samples in GPTConfig
-    # TODO ENTONCES NOS QUEDARA ESTO EN EL SCRIPT PRINCIPAL, PERFECTO!!!
-    train_dataset, valid_dataset, test_dataset = BlendedMegatronDatasetBuilder(GPTDataset, train_val_test_num_samples, gpt_config).build()
-
-    return train_dataset, valid_dataset, test_dataset
-
 @dataclass
-class MegatronDataCollatorForCLM:
+class NanosetDataCollatorForCLM:
     # TODO refractor docs
     """
     Data collator used for causal language modeling.
@@ -167,6 +117,7 @@ class MegatronDataCollatorForCLM:
         ]:
             # assert all(len(example) == 0 for example in examples)
             # TODO This assert is because the tricky thing of the empty dataset, but as we keep the dataset in all ranks we quit the assertion (THE HACKY THING)
+            # TODO como ya hemos implementado el dummy dataset este, ya podemos retomar el assert
             return {
                 "input_ids": TensorPointer(group_rank=self.input_pp_rank),
                 "input_mask": TensorPointer(group_rank=self.input_pp_rank),
@@ -262,21 +213,3 @@ def get_sampler(
         sampler = SkipBatchSampler(sampler, skip_batches=consumed_train_samples, dp_size=dl_ranks_size)
 
     return sampler
-
-# TODO Move from here! To utils?
-def compute_datasets_num_samples(train_iters, eval_interval, eval_iters,global_batch_size):
-    
-    train_samples = train_iters * global_batch_size
-    eval_iters = (train_iters // eval_interval + 1) * eval_iters
-    test_iters = eval_iters
-
-    datasets_num_samples = [train_samples,
-                            eval_iters * global_batch_size,
-                            test_iters * global_batch_size]
-    
-    log_rank(" > Datasets target sizes (minimum size):", logger=logger, level=logging.INFO, rank=0)
-    log_rank("    Train:      {}".format(datasets_num_samples[0]), logger=logger, level=logging.INFO, rank=0)
-    log_rank("    Validation: {}".format(datasets_num_samples[1]), logger=logger, level=logging.INFO, rank=0)
-    log_rank("    Test:       {}".format(datasets_num_samples[2]), logger=logger, level=logging.INFO, rank=0)
-    
-    return datasets_num_samples

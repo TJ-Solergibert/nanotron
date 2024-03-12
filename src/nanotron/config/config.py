@@ -83,7 +83,6 @@ class LoggingArgs:
 class PretrainDatasetsArgs:
     data_path: Optional[str]
     hf_dataset_or_datasets: Union[str, list, dict]
-    split: Optional[str] = None
     hf_dataset_splits: Optional[Union[str, list]] = None
     hf_dataset_config_name: Optional[str] = None
     dataset_processing_num_proc_per_process: Optional[int] = 1
@@ -95,6 +94,14 @@ class PretrainDatasetsArgs:
             self.text_column_name = "text"
         if self.hf_dataset_splits is None:
             self.hf_dataset_splits = "train"
+
+# TODO Change name, and post init? Should be like that?
+@dataclass
+class NanosetDatasetsArgs:
+    data_path: str
+    split: Optional[str] = None
+
+    def __post_init__(self):
         if self.split is None:
             self.split = "949,50,1"
 
@@ -102,9 +109,9 @@ class PretrainDatasetsArgs:
 class DataArgs:
     """Arguments related to the data and data files processing"""
 
-    dataset: Optional[PretrainDatasetsArgs]
+    dataset: Union[PretrainDatasetsArgs, NanosetDatasetsArgs]
     seed: Optional[int]
-    num_loading_workers: Optional[int] = 1
+    num_loading_workers: Optional[int] = 0
 
     def __post_init__(self):
         if self.seed is None:

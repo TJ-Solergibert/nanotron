@@ -9,9 +9,9 @@ from typing import Dict, List
 import numpy
 import torch
 
-from megatron.core.datasets.blended_megatron_dataset_config import GPTDatasetConfig # TODO Here I changed BlendedMegatronDatasetConfig 
-from megatron.core.datasets.indexed_dataset import MMapIndexedDataset
-from megatron.core.datasets.utils import Split
+from nanotron.data.blended_megatron_dataset_config import GPTDatasetConfig # TODO Here I changed BlendedMegatronDatasetConfig 
+from nanotron.data.indexed_dataset import MMapIndexedDataset
+from nanotron.data.utils import Split
 
 
 class MegatronDataset(ABC, torch.utils.data.Dataset):
@@ -25,7 +25,7 @@ class MegatronDataset(ABC, torch.utils.data.Dataset):
 
         num_samples (int): The number of samples to draw from the indexed dataset
 
-        index_split (Split): The indexed_indices Split
+        index_split (Split): The indexed_indices Split (train, valid, test)
 
         config (GPTDatasetConfig): The container for all config sourced parameters
     """

@@ -7,12 +7,13 @@ from typing import Callable, List, Optional
 
 import torch
 
-from megatron.core.datasets.utils import Split, log_single_rank, normalize
+from nanotron.data.utils import Split, log_single_rank, normalize
 
 logger = logging.getLogger(__name__)
 
 
 # TODO edit docs
+# TODO MOVER
 @dataclass
 class GPTDatasetConfig:
     """Configuration object for megatron-core blended and megatron datasets

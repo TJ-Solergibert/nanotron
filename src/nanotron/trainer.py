@@ -29,6 +29,7 @@ from nanotron.config import (
     ParallelismArgs,
     RandomInit,
     get_config_from_file,
+    NanosetDatasetsArgs
 )
 from nanotron.dataloader import sanity_check_dataloader
 from nanotron.helpers import (
@@ -148,6 +149,19 @@ class DistributedTrainer:
         # Log benchmark info
         if os.environ.get("NANOTRON_BENCHMARK", "0") == "1":
             log_throughput(self.config, self.parallel_context)
+
+        ########################################
+        ## Compile Nanoset helpers
+        ########################################
+            
+            # Only if Using Nanoset Datasets
+            if isinstance(self.config.data.dataset, NanosetDatasetsArgs):
+                if dist.get_rank() == 0:
+                    log_rank("Compiling dataset index builder ...", logger=logger, level=logging.INFO, rank=0)
+                    from nanotron.data.utils import compile_helpers
+
+                    compile_helpers()
+                    log_rank("Done with dataset index builder.", logger=logger, level=logging.INFO, rank=0)
 
         ########################################
         ## Setting up our model, optimizers, schedulers, etc.

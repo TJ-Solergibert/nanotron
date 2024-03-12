@@ -14,7 +14,10 @@ from nanotron import logging
 from nanotron.parallel.pipeline_parallel.utils import get_input_output_pp_ranks
 from nanotron.trainer import DistributedTrainer
 
-from nanotron.data.dataloader import build_megatron_dataloader, build_megatron_datasets
+from nanotron.data.nanoset import NanosetConfig
+from nanotron.data.dataset_builder import NanosetBuilder
+from nanotron.data.dataloader_builder import build_nanoset_dataloader
+from nanotron.data.utils import compute_datasets_num_samples
 
 logger = logging.get_logger(__name__)
 
@@ -24,19 +27,31 @@ def get_dataloaders(trainer: DistributedTrainer):
     # First, we need to know which ranks to feed the dataloader to
     input_pp_rank, output_pp_rank = get_input_output_pp_ranks(model=trainer.model)
 
-    train_dataset, valid_dataset, test_dataset = build_megatron_datasets(
+    # Create Nanoset config
+    split_num_samples = compute_datasets_num_samples(train_iters=12,
+                                               eval_interval=12,
+                                               eval_iters=12,
+                                               global_batch_size=12)
+    
+    default_split_num_samples = trainer.consumed_train_samples
+
+    assert split_num_samples == default_split_num_samples
+
+    # break
+    
+    nanoset_config = NanosetConfig(
+        random_seed=trainer.config.data.seed,
         sequence_length=trainer.sequence_length,
-        data_path= trainer.config.data.dataset.data_path,
+        data_path=trainer.config.data.dataset.data_path,
         split=trainer.config.data.dataset.split,
-        train_iters= trainer.config.tokens.train_steps,
-        eval_interval= trainer.config.tokens.val_check_interval,
-        eval_iters= trainer.config.tokens.val_steps,
-        global_batch_size= trainer.global_batch_size,
-        seed=trainer.config.data.seed
+        split_num_samples=split_num_samples
     )
 
+    # Build Nanoset datasets
+    train_dataset, valid_dataset, test_dataset = NanosetBuilder(nanoset_config).build(nanoset_config)
+
     # Prepare train, valid and test dataloaders
-    train_dataloader = build_megatron_dataloader(
+    train_dataloader = build_nanoset_dataloader(
         train_dataset,
         trainer.sequence_length,
         parallel_context=trainer.parallel_context,
@@ -49,7 +64,7 @@ def get_dataloaders(trainer: DistributedTrainer):
         dataloader_drop_last=True,
     )
 
-    valid_dataloader = build_megatron_dataloader(
+    valid_dataloader = build_nanoset_dataloader(
         valid_dataset,
         trainer.sequence_length,
         parallel_context=trainer.parallel_context,
@@ -62,7 +77,7 @@ def get_dataloaders(trainer: DistributedTrainer):
         dataloader_drop_last=True,
     )
 
-    test_dataloader = build_megatron_dataloader(
+    test_dataloader = build_nanoset_dataloader(
         test_dataset,
         trainer.sequence_length,
         parallel_context=trainer.parallel_context,

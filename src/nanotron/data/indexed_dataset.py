@@ -19,12 +19,13 @@ from typing import List, Optional, Tuple, Type, Union
 import numpy
 import torch
 
-from megatron.core.datasets.utils import log_single_rank
+from nanotron.logging import log_rank
 
 logger = logging.getLogger(__name__)
 
 _INDEX_HEADER = b"MMIDIDX\x00\x00"
 
+# TODO Refractor. Delete multimodal references.
 
 class DType(Enum):
     """The NumPy data type Enum for writing/reading the MMapIndexedDataset indices
@@ -221,7 +222,7 @@ class _IndexReader(object):
 
     def __init__(self, idx_path: str, multimodal: bool) -> None:
 
-        log_single_rank(logger, logging.INFO, f"Load the {type(self).__name__} from {idx_path}")
+        log_rank(f"Load the {type(self).__name__} from {idx_path}", logger=logger, level=logging.INFO, rank=0)
 
         with open(idx_path, "rb") as stream:
             header = stream.read(9)
@@ -242,15 +243,15 @@ class _IndexReader(object):
         self.bin_buffer_mmap = numpy.memmap(idx_path, mode="r", order="C")
         self.bin_buffer = memoryview(self.bin_buffer_mmap)
 
-        log_single_rank(logger, logging.INFO, f"\tExtract the sequence lengths")
+        log_rank(f"\tExtract the sequence lengths", logger=logger, level=logging.INFO, rank=0)
         t_beg = time.time()
         self.sequence_lengths = numpy.frombuffer(
             self.bin_buffer, dtype=numpy.int32, count=self.sequence_count, offset=offset
         )
         t_end = time.time()
-        log_single_rank(logger, logging.DEBUG, f"\t> time elapsed: {t_end - t_beg:4f} seconds")
+        log_rank(f"\t> time elapsed: {t_end - t_beg:4f} seconds", logger=logger, level=logging.DEBUG, rank=0)
 
-        log_single_rank(logger, logging.INFO, f"\tExtract the sequence pointers")
+        log_rank(f"\tExtract the sequence pointers", logger=logger, level=logging.INFO, rank=0)
         t_beg = time.time()
         self.sequence_pointers = numpy.frombuffer(
             self.bin_buffer,
@@ -259,9 +260,9 @@ class _IndexReader(object):
             offset=offset + self.sequence_lengths.nbytes,
         )
         t_end = time.time()
-        log_single_rank(logger, logging.DEBUG, f"\t> time elapsed: {t_end - t_beg:4f} seconds")
+        log_rank(f"\t> time elapsed: {t_end - t_beg:4f} seconds", logger=logger, level=logging.DEBUG, rank=0)
 
-        log_single_rank(logger, logging.INFO, f"\tExtract the document indices")
+        log_rank(f"\tExtract the document indices", logger=logger, level=logging.INFO, rank=0)
         t_beg = time.time()
         self.document_indices = numpy.frombuffer(
             self.bin_buffer,
@@ -270,11 +271,11 @@ class _IndexReader(object):
             offset=offset + self.sequence_lengths.nbytes + self.sequence_pointers.nbytes,
         )
         t_end = time.time()
-        log_single_rank(logger, logging.DEBUG, f"\t> time elapsed: {t_end - t_beg:4f} seconds")
+        log_rank(f"\t> time elapsed: {t_end - t_beg:4f} seconds", logger=logger, level=logging.DEBUG, rank=0)
 
         self.sequence_modes = None
         if multimodal:
-            log_single_rank(logger, logging.INFO, f"\tExtract the sequence modes")
+            log_rank(f"\tExtract the sequence modes", logger=logger, level=logging.INFO, rank=0)
             t_beg = time.time()
             self.sequence_modes = numpy.frombuffer(
                 self.bin_buffer,
@@ -286,17 +287,18 @@ class _IndexReader(object):
                 + self.document_indices.nbytes,
             )
             t_end = time.time()
-            log_single_rank(logger, logging.DEBUG, f"\t> time elapsed: {t_end - t_beg:4f} seconds")
+            log_rank(f"\t> time elapsed: {t_end - t_beg:4f} seconds", logger=logger, level=logging.DEBUG, rank=0)
 
         assert self.sequence_lengths.shape[0] == len(self)
         assert self.sequence_lengths.shape[0] == self.sequence_count
         assert self.sequence_lengths.shape[0] == self.document_indices[-1]
 
-        log_single_rank(logger, logging.INFO, f"> total number of sequences: {len(self)}")
-        log_single_rank(
-            logger,
-            logging.INFO,
+        log_rank(f"> total number of sequences: {len(self)}", logger=logger, level=logging.INFO, rank=0)
+        log_rank(
             f"> total number of documents: {self.document_indices.shape[0] - 1}",
+            logger=logger, 
+            level=logging.INFO, 
+            rank=0
         )
 
     def __del__(self) -> None:
@@ -418,6 +420,7 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
             Union[numpy.ndarray, Tuple[numpy.ndarray, numpy.ndarray]]: The sequence tokens and
             modes at the index or index slice
         """
+        # TODO: Check this if else
         if isinstance(idx, (int, numpy.integer)):
             sequence_pointer, sequence_length, sequence_mode = self.index[idx]
             sequence = numpy.frombuffer(
