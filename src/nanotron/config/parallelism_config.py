@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -16,7 +17,7 @@ class ParallelismArgs:
     """Arguments related to TP/PP/DP
 
     Args:
-        dp: Number of DP replicas
+        dp: Number of DP replicas. Set to -1 to automatically compute DP size after dividing the model w/ PP & TP
         pp: Number of PP stages
         tp: Number of TP replicas
         expert_parallel_size: Number of expert parallel replicas (used only for MoEs)
@@ -47,3 +48,6 @@ class ParallelismArgs:
             self.pp_engine = cast_str_to_pipeline_engine(self.pp_engine)
         if isinstance(self.tp_mode, str):
             self.tp_mode = TensorParallelLinearMode[self.tp_mode.upper()]
+
+        if self.dp == -1:
+            self.dp = int(os.environ["WORLD_SIZE"]) // (self.tp * self.pp)
